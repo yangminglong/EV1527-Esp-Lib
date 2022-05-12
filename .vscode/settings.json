@@ -1,0 +1,7 @@
+{
+  "files.associations": {
+    "*.tpp": "cpp",
+    "streambuf": "cpp",
+    "map": "cpp"
+  }
+}
