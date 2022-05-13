@@ -6,8 +6,9 @@
 #include <map>
 
 struct pinState {
-  bool isHigh;
+  bool isLow;
   uint32 timeMicro;
+  uint32 timeSpan;
 };
 
 struct IdKey {
@@ -28,10 +29,9 @@ int g_dataPin = -1;
 static bool curPinIsHigh = false;
 static bool isTriggerSync = false;
 
-void IRAM_ATTR on1527Interrupt()
-{
-  g_pinTriTimings.push( { (bool)digitalRead(g_dataPin), system_get_time() } );
-}
+uint64_t timeToClearBuffer = 0;
+int clearBufferTimeSpan = 100;
+
 
 uint32 getTimeSpan(uint32 t1, uint32 t2)
 {
@@ -43,56 +43,66 @@ uint32 getTimeSpan(uint32 t1, uint32 t2)
     return std::numeric_limits<uint32>::max() - t2 + 1 + t1;
 }
 
+void IRAM_ATTR on1527Interrupt()
+{
+  g_pinTriTimings.push( { digitalRead(g_dataPin)==LOW, system_get_time() } );
+  timeToClearBuffer = millis()+clearBufferTimeSpan;
+}
+
+
+#define SYNC_TIMESPAN 12000
+#define SYNC_ALLOW_ERR_TIMESPAN 2400
+
+#define BIT_TIMESPAN 1200
+#define BIT_ALLOW_ERR_TIMESPAN 240
+
+#define BITS_TIMESPAN BIT_TIMESPAN*24
+#define BITS_ALLOW_ERR_TIMESPAN 6000
+
 bool sync()
 {
-  uint32 preTime = 0;
-  do 
+  bool isSync = false;
+  int32 syncTime = getTimeSpan(g_pinTriTimings[0].timeMicro, g_pinTriTimings[1].timeMicro);
+  if (g_pinTriTimings[0].isLow && abs(syncTime - SYNC_TIMESPAN) < SYNC_ALLOW_ERR_TIMESPAN) 
   {
-    if (g_pinTriTimings[0].isHigh && !g_pinTriTimings[1].isHigh && g_pinTriTimings[2].isHigh) 
-    {
-      int32 syncTime = getTimeSpan(g_pinTriTimings[0].timeMicro, g_pinTriTimings[1].timeMicro);
-      if (abs(syncTime - 9000) > 100)
-      {
-        g_pinTriTimings.shift(); // 从头部移除
-        continue;
-      }
-      else
-      {
-        g_pinTriTimings.shift(); // 从头部移除
-        return true;
-      }
-    }
-    else 
-    {
-      g_pinTriTimings.shift(); // 从头部移除
-    }
-  } while (g_pinTriTimings.size() == 52);
+      isSync = true;
+  }
 
+  g_pinTriTimings.shift(); // 从头部移除
   return false;
 }
 
 bool getData(uint32& data)
 {
-  data = 0;
-  for (int i = 0; i < 24; ++i) {
+  int64_t totalTime;
+  for (int i = 0; i < 24; ++i) 
+  {
     uint32 bitTimeHigh = getTimeSpan(g_pinTriTimings[0].timeMicro, g_pinTriTimings[1].timeMicro);
     uint32 bitTimeLow  = getTimeSpan(g_pinTriTimings[1].timeMicro, g_pinTriTimings[2].timeMicro);
-    
-    int32 bitTime = bitTimeHigh+bitTimeLow;
-    if (abs(bitTime - 1200) > 50)
-      return false;
-    
-    bool isHigh = bitTimeLow < bitTimeHigh;
 
-    if (isHigh && (bitTimeLow-200) > 50
-    || !isHigh && (bitTimeLow-800) > 50)
+    int32 bitTime = bitTimeHigh+bitTimeLow;
+
+    if (abs(bitTime - BIT_TIMESPAN) > BIT_ALLOW_ERR_TIMESPAN)
+    {
+      return false;
+    }
+
+    totalTime = totalTime + bitTime;
+
+    int dataBit = bitTimeLow < bitTime/2 ? 1 : bitTimeLow > bitTime/2 ? 0 : -1 ;
+
+    if ( dataBit == -1 )
       return false;
 
     data << 1;
-    data+=isHigh?1:0;
+    data += dataBit;
 
     g_pinTriTimings.shift(); // 从头部移除
     g_pinTriTimings.shift(); // 从头部移除
+  }
+
+  if (abs(totalTime-BITS_TIMESPAN) > BITS_ALLOW_ERR_TIMESPAN) {
+    return false;
   }
 
   return true;
@@ -117,7 +127,10 @@ void EV1527::begin(int dataPin, std::function<void(uint32, uint32)> callback)
 
   pinMode(g_dataPin, INPUT);
   attachInterrupt(g_dataPin, on1527Interrupt, CHANGE);
+
+  timeToClearBuffer = millis()+clearBufferTimeSpan;
 }
+
 
 /*
 bit0：400us 高电平+800us 低电平
@@ -128,7 +141,12 @@ bit1：1ms 高电平+200us 低电平
 */
 void EV1527::loop()
 {
-  if (g_pinTriTimings.size() == 52) 
+  if (millis() > timeToClearBuffer && !g_pinTriTimings.isEmpty()) {
+    timeToClearBuffer = millis()+clearBufferTimeSpan;
+    g_pinTriTimings.clear();
+  }
+
+  if (g_pinTriTimings.size() >= 50) 
   {
     if (sync()) 
     {
