@@ -22,5 +22,6 @@
   ],
   "version": "1.0.0",
   "frameworks": "arduino",
-  "platforms": "*"
+  "platforms": "*",
+  "headers": "EV1527.h"
 }
