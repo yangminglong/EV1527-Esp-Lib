@@ -7,6 +7,10 @@
     "type": "git",
     "url": "https://github.com/yangminglong/EV1527-Esp-Lib.git"
   },
+  "dependencies": 
+  [
+    { "name": "CircularBuffer" }
+  ],
   "authors":
   [
     {
