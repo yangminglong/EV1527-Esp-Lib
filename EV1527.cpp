@@ -39,12 +39,7 @@ int g_dataPin = -1;
 
 uint32 getTimeSpan(uint32 t1, uint32 t2)
 {
-  if (t2 > t1)
-    return t2-t1;
-  else if (t2 == t1)
-    return 0;
-  else
-    return std::numeric_limits<uint32>::max() - t2 + 1 + t1;
+  return t2>t1 ? t2-t1 : t2==t1 ? 0 : std::numeric_limits<uint32>::max() - t2 + 1 + t1;
 }
 uint32 id = 0;
 void IRAM_ATTR on1527Interrupt()
