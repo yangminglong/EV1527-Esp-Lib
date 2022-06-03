@@ -5,7 +5,7 @@
 #include <user_interface.h>
 #include <map>
 
-#define ACTIVE_DEBUG
+// #define ACTIVE_DEBUG
 #ifdef ACTIVE_DEBUG
   #define DEBUG_PRINT(x) Serial.print(x)
   #define DEBUG_PRINTLN(x) Serial.println(x)
@@ -41,7 +41,7 @@ uint32 getTimeSpan(uint32 t1, uint32 t2)
 {
   return t2>t1 ? t2-t1 : t2==t1 ? 0 : std::numeric_limits<uint32>::max() - t2 + 1 + t1;
 }
-uint32 id = 0;
+static uint32 id = 0;
 void IRAM_ATTR on1527Interrupt()
 {
   bool isLow = digitalRead(g_dataPin)==LOW;
@@ -51,16 +51,22 @@ void IRAM_ATTR on1527Interrupt()
 }
 
 
-#define SYNC_TIMESPAN 11325
-#define SYNC_TIMESPAN_ALLOW_ERR 100
+#define SYNC_TIMESPAN 11000
+#define SYNC_TIMESPAN_ALLOW_ERR 1500
 
-#define BIT_LONG 1075
-#define BIT_SHORT 375
-#define BIT_ALLOW_ERR_TIMESPAN 50
-#define BIT_TIMESPAN (BIT_LONG+BIT_SHORT)
+#define BIT_0_HIGH 400
+#define BIT_0_LOW  800
 
-#define BITS_TIMESPAN (1111111)
-#define BITS_TIMESPAN_ALLOW_ERR 10000
+#define BIT_1_HIGH  1000
+#define BIT_1_LOW   200
+
+// #define BIT_LONG 900
+// #define BIT_SHORT 350
+#define BIT_ALLOW_ERR_TIMESPAN 200
+// #define BIT_TIMESPAN (BIT_LONG+BIT_SHORT)
+
+// #define BITS_TIMESPAN (1111111)
+// #define BITS_TIMESPAN_ALLOW_ERR 10000
 
 enum BitType {
   ErrBit = 0,
@@ -126,13 +132,13 @@ void EV1527::loop()
         curId = tr.id;
         if (isSynced) {
           BitType bitType = ErrBit;
-          if (abs(tr.timeSpan - BIT_LONG) < BIT_ALLOW_ERR_TIMESPAN) {
+          if (abs(tr.timeSpan - BIT_1_HIGH) < BIT_ALLOW_ERR_TIMESPAN) {
             bitType = LongBit;
             curData = (curData<<1)+0;
             #ifdef ACTIVE_DEBUG
             strData += "0:" + String(tr.id) + "." + String(tr.timeSpan) + " ";
             #endif
-          } else if (abs(tr.timeSpan - BIT_SHORT) < BIT_ALLOW_ERR_TIMESPAN) {
+          } else if (abs(tr.timeSpan - BIT_0_HIGH) < BIT_ALLOW_ERR_TIMESPAN) {
             bitType = ShortBit;
             curData = (curData<<1)+1;
             #ifdef ACTIVE_DEBUG
@@ -195,7 +201,17 @@ void EV1527::loop()
     }
 
     if (size > 1 || (size == 1 && getTimeSpan(tr.timeMicro, system_get_time()) > 1000000)) {
+        struct pinState {
+          uint32 id;
+          bool isLow;
+          uint32 timeMicro;
+          int32 timeSpan;
+        };
+
+        DEBUG_PRINTF("id:%d, isLow:%d, timeSpan:%d\n", tr.id, tr.isLow, tr.timeSpan);
+
       g_pinTriTimings.shift();
+
     }
   }
 
