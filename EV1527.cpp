@@ -2,7 +2,11 @@
 #include "EV1527.h"
 #define CIRCULAR_BUFFER_INT_SAFE
 #include "CircularBuffer.h"
+#ifdef ESP8266
 #include <user_interface.h>
+#else
+#include "time.h"
+#endif
 #include <map>
 
 // #define ACTIVE_DEBUG
@@ -17,16 +21,16 @@
 #endif
 
 struct pinState {
-  uint32 id;
+  uint32_t id;
   bool isLow;
-  uint32 timeMicro;
-  int32 timeSpan;
+  unsigned long timeMicro;
+  unsigned long timeSpan;
 };
 
 struct IdKey {
-  int32 data;
-  uint32 id;
-  uint32 key;
+  int32_t data;
+  uint32_t id;
+  uint32_t key;
 };
 
 #define MIN_FRAMES 3
@@ -34,19 +38,19 @@ struct IdKey {
 static CircularBuffer<pinState, 256> g_pinTriTimings;
 static CircularBuffer<IdKey, MIN_FRAMES> g_idKeys;
 
-static std::function<void(uint32, uint32)> g_dataCallback = nullptr;
+static std::function<void(uint32_t, uint32_t)> g_dataCallback = nullptr;
 int g_dataPin = -1;
 
-uint32 getTimeSpan(uint32 t1, uint32 t2)
+unsigned long getTimeSpan(unsigned long t1, unsigned long t2)
 {
-  return t2>t1 ? t2-t1 : t2==t1 ? 0 : std::numeric_limits<uint32>::max() - t2 + 1 + t1;
+  return t2>t1 ? t2-t1 : t2==t1 ? 0 : std::numeric_limits<unsigned long>::max() - t2 + 1 + t1;
 }
-static uint32 id = 0;
+static uint32_t id = 0;
 void IRAM_ATTR on1527Interrupt()
 {
   bool isLow = digitalRead(g_dataPin)==LOW;
-  uint32 curTime = system_get_time();
-  int32 timeSpan = g_pinTriTimings.isEmpty() ? 0 : getTimeSpan(g_pinTriTimings.last().timeMicro, curTime);
+  unsigned long curTime = micros();
+  unsigned long timeSpan = g_pinTriTimings.isEmpty() ? 0 : getTimeSpan(g_pinTriTimings.last().timeMicro, curTime);
   g_pinTriTimings.push( {id++, isLow, curTime, timeSpan} );
 }
 
@@ -77,15 +81,15 @@ enum BitType {
 
 bool isSynced = false;
 int dataCounter = 0;
-int32 curData = 0;
-uint32 ts = 0;
-uint32 curId = 0;
+int32_t curData = 0;
+uint32_t ts = 0;
+uint32_t curId = 0;
 #ifdef ACTIVE_DEBUG
 String strData;
 #endif
 
 
-void dataToIdKey(int32 data, IdKey& idKey)
+void dataToIdKey(int32_t data, IdKey& idKey)
 {
   idKey.data = data;
   idKey.key = data & 0xF;
@@ -96,7 +100,7 @@ EV1527::EV1527()
 {
 }
 
-void EV1527::begin(int dataPin, std::function<void(uint32, uint32)> callback)
+void EV1527::begin(int dataPin, std::function<void(uint32_t, uint32_t)> callback)
 {
   g_dataCallback = callback;
   g_dataPin = dataPin;
@@ -132,19 +136,19 @@ void EV1527::loop()
         curId = tr.id;
         if (isSynced) {
           BitType bitType = ErrBit;
-          if (abs(tr.timeSpan - BIT_1_HIGH) < BIT_ALLOW_ERR_TIMESPAN) {
+          if (abs((int64_t)tr.timeSpan - BIT_1_HIGH) < BIT_ALLOW_ERR_TIMESPAN) {
             bitType = LongBit;
             curData = (curData<<1)+0;
             #ifdef ACTIVE_DEBUG
             strData += "0:" + String(tr.id) + "." + String(tr.timeSpan) + " ";
             #endif
-          } else if (abs(tr.timeSpan - BIT_0_HIGH) < BIT_ALLOW_ERR_TIMESPAN) {
+          } else if (abs((int64_t)tr.timeSpan - BIT_0_HIGH) < BIT_ALLOW_ERR_TIMESPAN) {
             bitType = ShortBit;
             curData = (curData<<1)+1;
             #ifdef ACTIVE_DEBUG
             strData += "1:" + String(tr.id) + "." + String(tr.timeSpan) + " ";
             #endif
-          } else if (abs(tr.timeSpan - SYNC_TIMESPAN) < SYNC_TIMESPAN_ALLOW_ERR) {
+          } else if (abs((int64_t)tr.timeSpan - SYNC_TIMESPAN) < SYNC_TIMESPAN_ALLOW_ERR) {
             bitType = SyncBit;
 
             DEBUG_PRINTF("time_bit 重新计数:%d \n", dataCounter);
@@ -190,7 +194,7 @@ void EV1527::loop()
           } 
           
         } else {
-          if (abs(tr.timeSpan - SYNC_TIMESPAN) < SYNC_TIMESPAN_ALLOW_ERR) {
+          if (abs((int64_t)tr.timeSpan - SYNC_TIMESPAN) < SYNC_TIMESPAN_ALLOW_ERR) {
             DEBUG_PRINTF("Sync\n");
             isSynced = true;
             curId = tr.id;
@@ -200,13 +204,8 @@ void EV1527::loop()
       }
     }
 
-    if (size > 1 || (size == 1 && getTimeSpan(tr.timeMicro, system_get_time()) > 1000000)) {
-        struct pinState {
-          uint32 id;
-          bool isLow;
-          uint32 timeMicro;
-          int32 timeSpan;
-        };
+    
+    if (size > 1 || (size == 1 && getTimeSpan(tr.timeMicro, micros()) > 1000000)) {
 
         DEBUG_PRINTF("id:%d, isLow:%d, timeSpan:%d\n", tr.id, tr.isLow, tr.timeSpan);
 
