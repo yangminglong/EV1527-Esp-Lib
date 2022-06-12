@@ -41,16 +41,12 @@ static CircularBuffer<IdKey, MIN_FRAMES> g_idKeys;
 static std::function<void(uint32_t, uint32_t)> g_dataCallback = nullptr;
 int g_dataPin = -1;
 
-unsigned long getTimeSpan(unsigned long t1, unsigned long t2)
-{
-  return t2>t1 ? t2-t1 : t2==t1 ? 0 : std::numeric_limits<unsigned long>::max() - t2 + 1 + t1;
-}
 static uint32_t id = 0;
 void IRAM_ATTR on1527Interrupt()
 {
   bool isLow = digitalRead(g_dataPin)==LOW;
   unsigned long curTime = micros();
-  unsigned long timeSpan = g_pinTriTimings.isEmpty() ? 0 : getTimeSpan(g_pinTriTimings.last().timeMicro, curTime);
+  unsigned long timeSpan = g_pinTriTimings.isEmpty() ? 0 : curTime - g_pinTriTimings.last().timeMicro;
   g_pinTriTimings.push( {id++, isLow, curTime, timeSpan} );
 }
 
@@ -205,9 +201,9 @@ void EV1527::loop()
     }
 
     
-    if (size > 1 || (size == 1 && getTimeSpan(tr.timeMicro, micros()) > 1000000)) {
+  if (size > 1 || (size == 1 && micros() - tr.timeMicro  > 1000000)) { // 1000000 us, 1000ms 1s
 
-        DEBUG_PRINTF("id:%d, isLow:%d, timeSpan:%d\n", tr.id, tr.isLow, tr.timeSpan);
+      DEBUG_PRINTF("id:%d, isLow:%d, timeSpan:%d\n", tr.id, tr.isLow, tr.timeSpan);
 
       g_pinTriTimings.shift();
 
